@@ -8,6 +8,9 @@
 #define new DEBUG_NEW
 #endif
 
+HINSTANCE g_hinstance = NULL;
+HHOOK g_hhook_wnd_ret = NULL;
+
 //
 //TODO: If this DLL is dynamically linked against the MFC DLLs,
 //		any functions exported from this DLL which call into
@@ -60,4 +63,39 @@ BOOL Chook_target_mfc_dialogApp::InitInstance()
 	CWinApp::InitInstance();
 
 	return TRUE;
+}
+
+LRESULT CALLBACK CallWndRetProc(int nCode, WPARAM wParam, LPARAM lParam)
+{
+	CWPRETSTRUCT *p = (CWPRETSTRUCT *)lParam;
+
+	switch (p->message)
+	{
+	case WM_INITDIALOG:
+		{
+			OutputDebugString(L"WM_INITDIALOG");
+		}
+		break;
+	}
+
+	return CallNextHookEx(g_hhook_wnd_ret, nCode, wParam, lParam);
+}
+
+extern "C" __declspec(dllexport) void BegDialogHook(HWND hwnd)
+{
+	DWORD tid = GetWindowThreadProcessId(hwnd, NULL);
+	if (0 == tid)
+	{
+		OutputDebugString(L"GetWindowThreadProcessId return 0");
+		return;
+	}
+
+	g_hinstance = GetModuleHandle(L"hook_target_mfc_dialog");
+	g_hhook_wnd_ret = SetWindowsHookEx(WH_CALLWNDPROCRET, CallWndRetProc, g_hinstance, tid);
+}
+
+extern "C" __declspec(dllexport) void EndDialogHook()
+{
+	if (NULL != g_hhook_wnd_ret)
+		UnhookWindowsHookEx(g_hhook_wnd_ret);
 }

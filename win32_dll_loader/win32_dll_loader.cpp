@@ -6,6 +6,17 @@
 
 #define MAX_LOADSTRING 100
 
+#define WM_DIALOG_UI_BEG WM_USER + 1
+#define WM_DIALOG_UI_END WM_USER + 2
+
+HMODULE g_hook_target_mfc_dialog_hmodule = NULL;
+
+typedef void (*BEGDIALOGHOOK)(HWND);
+typedef void (*ENDDIALOGHOOK)();
+
+BEGDIALOGHOOK g_beg_dialog_hook;
+ENDDIALOGHOOK g_end_dialog_hook;
+
 // Global Variables:
 HINSTANCE hInst;								// current instance
 TCHAR szTitle[MAX_LOADSTRING];					// The title bar text
@@ -26,6 +37,24 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 	UNREFERENCED_PARAMETER(lpCmdLine);
 
  	// TODO: Place code here.
+	g_hook_target_mfc_dialog_hmodule = LoadLibrary(L"hook_target_mfc_dialog");
+	if (NULL == g_hook_target_mfc_dialog_hmodule)
+	{
+		OutputDebugString(L"LoadLibrary hook_target_mfc_dialog failed");
+	}
+
+	g_beg_dialog_hook = (BEGDIALOGHOOK)GetProcAddress(g_hook_target_mfc_dialog_hmodule, "BegDialogHook");
+	if (NULL == g_beg_dialog_hook)
+	{
+		OutputDebugString(L"g_beg_dialog_hook null");
+	}
+
+	g_end_dialog_hook = (ENDDIALOGHOOK)GetProcAddress(g_hook_target_mfc_dialog_hmodule, "EndDialogHook");
+	if (NULL == g_end_dialog_hook)
+	{
+		OutputDebugString(L"g_end_dialog_hook null");
+	}
+
 	MSG msg;
 	HACCEL hAccelTable;
 
@@ -121,6 +150,12 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
    return TRUE;
 }
 
+void free_all_dlls()
+{
+	if (g_hook_target_mfc_dialog_hmodule)
+		FreeLibrary(g_hook_target_mfc_dialog_hmodule);
+}
+
 //
 //  FUNCTION: WndProc(HWND, UINT, WPARAM, LPARAM)
 //
@@ -160,7 +195,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		// TODO: Add any drawing code here...
 		EndPaint(hWnd, &ps);
 		break;
+	case WM_DIALOG_UI_BEG:
+		g_beg_dialog_hook((HWND)wParam);
+		break;
+	case WM_DIALOG_UI_END:
+		g_end_dialog_hook();
+		break;
 	case WM_DESTROY:
+		free_all_dlls();
 		PostQuitMessage(0);
 		break;
 	default:
