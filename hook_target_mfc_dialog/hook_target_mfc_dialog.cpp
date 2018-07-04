@@ -3,13 +3,27 @@
 
 #include "stdafx.h"
 #include "hook_target_mfc_dialog.h"
+#include "util.h"
+#include "dlg_test0.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #endif
 
-HINSTANCE g_hinstance = NULL;
 HHOOK g_hhook_wnd_ret = NULL;
+
+HWND g_hwnd = NULL;
+CBrush g_brush;
+BLENDFUNCTION g_blend;
+Gdiplus::Image *g_gdi_pimage;
+CRect g_CenterArea;
+CWnd *parentDlg;
+CBrush m_brush;
+CDC *m_pMemDC;
+CBitmap *m_pBitmap;
+int m_nScreenX;
+int m_nScreenY;
+dlg_test0 *m_pMainDlg;
 
 //
 //TODO: If this DLL is dynamically linked against the MFC DLLs,
@@ -65,6 +79,72 @@ BOOL Chook_target_mfc_dialogApp::InitInstance()
 	return TRUE;
 }
 
+void ReSetChildDlg()
+{
+	CRect rcWin;
+	GetWindowRect(g_hwnd, &rcWin);
+	rcWin.left += g_CenterArea.left;
+	rcWin.top += g_CenterArea.top;
+	rcWin.right = rcWin.left + g_CenterArea.Width();
+	rcWin.bottom = rcWin.top + g_CenterArea.Height();
+	if (m_pMainDlg)
+	{
+		m_pMainDlg->MoveWindow(rcWin);
+	}
+}
+
+void DrawTXBar()
+{
+	RECT rct;
+	GetWindowRect(g_hwnd, &rct);
+
+	HDC hdcTemp = GetDC(g_hwnd);
+	HDC m_hdcMemory = CreateCompatibleDC(hdcTemp);
+	HBITMAP hBitMap = CreateCompatibleBitmap(hdcTemp, rct.right, rct.bottom);
+	SelectObject(m_hdcMemory, hBitMap);
+
+	POINT ptWinPos = { rct.left, rct.top };
+
+	Gdiplus::Graphics graphics(m_hdcMemory);
+	RECT rcClient;
+	GetClientRect(g_hwnd, &rcClient);
+
+	graphics.DrawImage(g_gdi_pimage, Gdiplus::Rect(rcClient.left, rcClient.top, rcClient.right, rcClient.bottom));
+
+	SIZE sizeWindow = { rct.right, rct.bottom };
+	POINT ptSrc = { 0, 0 };
+
+	DWORD dwExStyle = GetWindowLong(g_hwnd, GWL_EXSTYLE);
+	if ((dwExStyle & WS_EX_LAYERED) != WS_EX_LAYERED)
+		SetWindowLong(g_hwnd, GWL_EXSTYLE, dwExStyle ^ WS_EX_LAYERED);
+
+	HDC hdcScreen = GetDC(g_hwnd);
+	::UpdateLayeredWindow(g_hwnd, hdcScreen, &ptWinPos, &sizeWindow, m_hdcMemory, &ptSrc, 0, &g_blend, 2);
+	graphics.ReleaseHDC(m_hdcMemory);
+	::ReleaseDC(g_hwnd, hdcScreen);
+	hdcScreen = NULL;
+	::ReleaseDC(g_hwnd, hdcTemp);
+	hdcTemp = NULL;
+	DeleteObject(hBitMap);
+	DeleteDC(m_hdcMemory);
+	m_hdcMemory = NULL;
+}
+
+void set_image()
+{
+	GdiImageFromResource(&g_gdi_pimage, IDB_PNG_BK, L"PNG");
+	if (g_gdi_pimage)
+	{
+		CWnd *pcwnd = CWnd::FromHandle(g_hwnd);
+		pcwnd->MoveWindow(CRect(0, 0, g_gdi_pimage->GetWidth(), g_gdi_pimage->GetHeight()));
+		pcwnd->CenterWindow();
+		g_CenterArea = CRect(31, 24, g_gdi_pimage->GetWidth() - 27, g_gdi_pimage->GetHeight() - 23);
+		ReSetChildDlg();
+		m_pMainDlg->SetDrawRect(g_CenterArea);
+		DrawTXBar();
+	}
+}
+
 LRESULT CALLBACK CallWndRetProc(int nCode, WPARAM wParam, LPARAM lParam)
 {
 	CWPRETSTRUCT *p = (CWPRETSTRUCT *)lParam;
@@ -74,6 +154,66 @@ LRESULT CALLBACK CallWndRetProc(int nCode, WPARAM wParam, LPARAM lParam)
 	case WM_INITDIALOG:
 		{
 			OutputDebugString(L"WM_INITDIALOG");
+
+			Gdiplus::GdiplusStartupInput input;
+			ULONG_PTR token;
+			GdiplusStartup(&token, &input, NULL);
+
+			HWND hwnd = FindWindow(NULL, L"target_mfc_dialog");
+			if (NULL == hwnd)
+			{
+				OutputDebugString(L"FindWindow target_mfc_dialog error");
+				break;
+			}
+
+			g_hwnd = hwnd;
+
+			// OnCreate
+			CDC *pDC = CDC::FromHandle(GetDC(hwnd));
+			m_pMemDC = new CDC();
+			m_pBitmap = new CBitmap();
+			m_nScreenX = 556;
+			m_nScreenY = 397;
+			m_pMemDC->CreateCompatibleDC(pDC);
+			m_pBitmap->CreateCompatibleBitmap(pDC, m_nScreenX, m_nScreenY);
+			CBitmap *oldBitmap = m_pMemDC->SelectObject(m_pBitmap);
+			CBrush brush(RGB(255, 255, 255));
+			CRect rect;
+			GetClientRect(hwnd, &rect);
+			m_pMemDC->FillRect(CRect(rect.left, rect.top, m_nScreenX, m_nScreenY), &brush);
+			m_pMemDC->SelectObject(oldBitmap);
+			ReleaseDC(hwnd, pDC->GetSafeHdc());
+
+			m_pMainDlg = new dlg_test0(CWnd::FromHandle(hwnd));
+			if (m_pMainDlg)
+			{
+				m_pMainDlg->Create(IDD_DIALOG_TEST0, CWnd::FromHandle(hwnd));
+				m_pMainDlg->ShowWindow(SW_SHOW);
+				m_pMainDlg->SetParentDlg(CWnd::FromHandle(hwnd));
+			}
+
+			// OnInitDialog
+			COLORREF transColor = RGB(0, 255, 0);
+			g_brush.CreateSolidBrush(transColor);
+
+			DWORD dwExStyle = GetWindowLong(hwnd, GWL_STYLE);
+			SetWindowLong(hwnd, GWL_STYLE, dwExStyle | WS_EX_LAYERED);
+
+			// When bAlpha is 0, the window is completely transparent,
+			// When bAlpha is 255, the window is opaque.
+			SetLayeredWindowAttributes(hwnd, transColor, 0, LWA_COLORKEY);
+
+			DWORD dwStyle = GetWindowLong(hwnd, GWL_STYLE);
+
+			VERIFY((dwStyle & WS_POPUP) != 0);
+			VERIFY((dwStyle & WS_CHILD) == 0);
+
+			g_blend.BlendOp = 0;
+			g_blend.BlendFlags = 0;
+			g_blend.AlphaFormat = 1;
+			g_blend.SourceConstantAlpha = 255;
+
+			set_image();
 		}
 		break;
 	}
@@ -90,8 +230,8 @@ extern "C" __declspec(dllexport) void BegDialogHook(HWND hwnd)
 		return;
 	}
 
-	g_hinstance = GetModuleHandle(L"hook_target_mfc_dialog");
-	g_hhook_wnd_ret = SetWindowsHookEx(WH_CALLWNDPROCRET, CallWndRetProc, g_hinstance, tid);
+	g_hhook_wnd_ret = SetWindowsHookEx(
+		WH_CALLWNDPROCRET, CallWndRetProc, GetModuleHandle(L"hook_target_mfc_dialog"), tid);
 }
 
 extern "C" __declspec(dllexport) void EndDialogHook()
