@@ -28,6 +28,38 @@ dlg_test0 *m_pMainDlg;
 WNDPROC g_old_proc;
 static bool g_subclassed = false;
 
+class resource_handle
+{
+public:
+	resource_handle()
+	{
+		m_hinstance = NULL;
+	}
+
+	~resource_handle()
+	{
+		if (m_hinstance)
+			FreeLibrary(m_hinstance);
+	}
+
+public:
+	bool load(const CString &module)
+	{
+		m_hinstance = LoadLibrary(module);
+		return (m_hinstance == NULL ? false : true);
+	}
+
+	HINSTANCE get_hinstance()
+	{
+		return m_hinstance;
+	}
+
+private:
+	HINSTANCE m_hinstance;
+};
+
+resource_handle g_rh;
+
 //
 //TODO: If this DLL is dynamically linked against the MFC DLLs,
 //		any functions exported from this DLL which call into
@@ -212,16 +244,19 @@ LRESULT CALLBACK CallWndRetProc(int nCode, WPARAM wParam, LPARAM lParam)
 			ReleaseDC(hwnd, pDC->GetSafeHdc());
 
 			// fix "Debug Assertion Failed!" at dlgcore.cpp:213
-			AfxSetResourceHandle(GetModuleHandle(L"hook_target_mfc_dialog"));
-
-			m_pMainDlg = new dlg_test0(CWnd::FromHandle(hwnd));
-			if (m_pMainDlg)
+			if (g_rh.load(L"hook_target_mfc_dialog"))
 			{
-				// here will cause dlgcore.cpp:213 "Debug Assertion Failed!"
-				// ERROR: Cannot find dialog template with IDD IDD_DIALOG_TEST0
-				m_pMainDlg->Create(IDD_DIALOG_TEST0, CWnd::FromHandle(hwnd));
-				m_pMainDlg->ShowWindow(SW_SHOW);
-				m_pMainDlg->SetParentDlg(CWnd::FromHandle(hwnd));
+				AfxSetResourceHandle(g_rh.get_hinstance());
+
+				m_pMainDlg = new dlg_test0(CWnd::FromHandle(hwnd));
+				if (m_pMainDlg)
+				{
+					// here will cause dlgcore.cpp:213 "Debug Assertion Failed!"
+					// ERROR: Cannot find dialog template with IDD IDD_DIALOG_TEST0
+					m_pMainDlg->Create(IDD_DIALOG_TEST0, CWnd::FromHandle(hwnd));
+					m_pMainDlg->ShowWindow(SW_SHOW);
+					m_pMainDlg->SetParentDlg(CWnd::FromHandle(hwnd));
+				}
 			}
 
 			// OnInitDialog
