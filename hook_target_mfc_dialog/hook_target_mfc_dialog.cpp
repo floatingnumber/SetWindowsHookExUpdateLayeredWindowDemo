@@ -11,18 +11,17 @@
 #endif
 
 HHOOK g_hhook_wnd_ret = NULL;
+HHOOK g_hhook_msg = NULL;
 
 HWND g_hwnd = NULL;
 CBrush g_brush;
 BLENDFUNCTION g_blend;
 Gdiplus::Image *g_gdi_pimage;
-CRect g_CenterArea;
-CWnd *parentDlg;
-CBrush m_brush;
-CDC *m_pMemDC;
-CBitmap *m_pBitmap;
-int m_nScreenX;
-int m_nScreenY;
+CRect g_crect_center;
+CDC *g_pmem_cdc;
+CBitmap *g_pcbitmap;
+int g_screen_x;
+int g_screen_y;
 dlg_test0 *m_pMainDlg;
 
 WNDPROC g_old_proc;
@@ -118,10 +117,10 @@ void ReSetChildDlg()
 {
 	CRect rcWin;
 	GetWindowRect(g_hwnd, &rcWin);
-	rcWin.left += g_CenterArea.left;
-	rcWin.top += g_CenterArea.top;
-	rcWin.right = rcWin.left + g_CenterArea.Width();
-	rcWin.bottom = rcWin.top + g_CenterArea.Height();
+	rcWin.left += g_crect_center.left;
+	rcWin.top += g_crect_center.top;
+	rcWin.right = rcWin.left + g_crect_center.Width();
+	rcWin.bottom = rcWin.top + g_crect_center.Height();
 	if (m_pMainDlg)
 	{
 		m_pMainDlg->MoveWindow(rcWin);
@@ -173,9 +172,9 @@ void set_image()
 		CWnd *pcwnd = CWnd::FromHandle(g_hwnd);
 		pcwnd->MoveWindow(CRect(0, 0, g_gdi_pimage->GetWidth(), g_gdi_pimage->GetHeight()));
 		pcwnd->CenterWindow();
-		g_CenterArea = CRect(31, 24, g_gdi_pimage->GetWidth() - 27, g_gdi_pimage->GetHeight() - 23);
+		g_crect_center = CRect(31, 24, g_gdi_pimage->GetWidth() - 27, g_gdi_pimage->GetHeight() - 23);
 		ReSetChildDlg();
-		m_pMainDlg->SetDrawRect(g_CenterArea);
+		m_pMainDlg->SetDrawRect(g_crect_center);
 		DrawTXBar();
 	}
 }
@@ -193,9 +192,75 @@ LRESULT CALLBACK new_proc(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam)
 	if (Msg == WM_DESTROY)
 	{
 		g_subclassed = false;
+
+		// from mfc_window1Dlg
+		if (g_pmem_cdc)
+		{
+			delete g_pmem_cdc;
+			g_pmem_cdc = NULL;
+		}
+
+		if (g_pcbitmap)
+		{
+			delete g_pcbitmap;
+			g_pcbitmap = NULL;
+		}
+
+		// from mfc_window1's dlg_parent
+		if (m_pMainDlg)
+		{
+			delete m_pMainDlg;
+			m_pMainDlg = NULL;
+		}
+
+		if (g_gdi_pimage)
+		{
+			delete g_gdi_pimage;
+			g_gdi_pimage = NULL;
+		}
+	}
+
+	if (Msg == WM_MOVE)
+	{
+		OutputDebugString(L"new_proc WM_MOVE");
+		ReSetChildDlg();
 	}
 
 	return CallWindowProc(g_old_proc, hWnd, Msg, wParam, lParam);
+}
+
+LRESULT CALLBACK GetMsgProc(int nCode, WPARAM wParam, LPARAM lParam)
+{
+	MSG *p = (MSG *)lParam;
+
+	switch (p->message)
+	{
+	case WM_PAINT:
+		{
+			OutputDebugString(L"WH_GETMESSAGE WM_PAINT");
+
+			if (g_hwnd)
+			{
+				CDC *pDC = CDC::FromHandle(GetDC(g_hwnd));
+				CRect rect;
+				GetClientRect(g_hwnd, rect);
+				CBitmap *oldBitmap = g_pmem_cdc->SelectObject(g_pcbitmap);
+				pDC->BitBlt(rect.left, rect.top, g_screen_x, g_screen_y, g_pmem_cdc, rect.left, rect.top, SRCCOPY);
+				g_pmem_cdc->SelectObject(oldBitmap);
+			}
+		}
+		break;
+	case WM_LBUTTONDOWN:
+		{
+			if (g_hwnd == p->hwnd)
+			{
+				PostMessage(p->hwnd, WM_NCLBUTTONDOWN, HTCAPTION, p->lParam);
+			}
+		}
+		break;
+	}
+
+	return CallNextHookEx(g_hhook_msg, nCode, wParam, lParam);
 }
 
 LRESULT CALLBACK CallWndRetProc(int nCode, WPARAM wParam, LPARAM lParam)
@@ -229,18 +294,18 @@ LRESULT CALLBACK CallWndRetProc(int nCode, WPARAM wParam, LPARAM lParam)
 
 			// OnCreate
 			CDC *pDC = CDC::FromHandle(GetDC(hwnd));
-			m_pMemDC = new CDC();
-			m_pBitmap = new CBitmap();
-			m_nScreenX = 556;
-			m_nScreenY = 397;
-			m_pMemDC->CreateCompatibleDC(pDC);
-			m_pBitmap->CreateCompatibleBitmap(pDC, m_nScreenX, m_nScreenY);
-			CBitmap *oldBitmap = m_pMemDC->SelectObject(m_pBitmap);
+			g_pmem_cdc = new CDC();
+			g_pcbitmap = new CBitmap();
+			g_screen_x = 556;
+			g_screen_y = 397;
+			g_pmem_cdc->CreateCompatibleDC(pDC);
+			g_pcbitmap->CreateCompatibleBitmap(pDC, g_screen_x, g_screen_y);
+			CBitmap *oldBitmap = g_pmem_cdc->SelectObject(g_pcbitmap);
 			CBrush brush(RGB(255, 255, 255));
 			CRect rect;
 			GetClientRect(hwnd, &rect);
-			m_pMemDC->FillRect(CRect(rect.left, rect.top, m_nScreenX, m_nScreenY), &brush);
-			m_pMemDC->SelectObject(oldBitmap);
+			g_pmem_cdc->FillRect(CRect(rect.left, rect.top, g_screen_x, g_screen_y), &brush);
+			g_pmem_cdc->SelectObject(oldBitmap);
 			ReleaseDC(hwnd, pDC->GetSafeHdc());
 
 			// fix "Debug Assertion Failed!" at dlgcore.cpp:213
@@ -263,14 +328,14 @@ LRESULT CALLBACK CallWndRetProc(int nCode, WPARAM wParam, LPARAM lParam)
 			COLORREF transColor = RGB(0, 255, 0);
 			g_brush.CreateSolidBrush(transColor);
 
-			DWORD dwExStyle = GetWindowLong(hwnd, GWL_STYLE);
-			SetWindowLong(hwnd, GWL_STYLE, dwExStyle | WS_EX_LAYERED);
+			DWORD dwStyle = GetWindowLong(hwnd, GWL_STYLE);
+			SetWindowLong(hwnd, GWL_STYLE, dwStyle | WS_EX_LAYERED);
 
 			// When bAlpha is 0, the window is completely transparent,
 			// When bAlpha is 255, the window is opaque.
 			SetLayeredWindowAttributes(hwnd, transColor, 0, LWA_COLORKEY);
 
-			DWORD dwStyle = GetWindowLong(hwnd, GWL_STYLE);
+			dwStyle = GetWindowLong(hwnd, GWL_STYLE);
 
 			VERIFY((dwStyle & WS_POPUP) != 0);
 			VERIFY((dwStyle & WS_CHILD) == 0);
@@ -299,12 +364,17 @@ extern "C" __declspec(dllexport) void BegDialogHook(HWND hwnd)
 		return;
 	}
 
-	g_hhook_wnd_ret = SetWindowsHookEx(
-		WH_CALLWNDPROCRET, CallWndRetProc, GetModuleHandle(L"hook_target_mfc_dialog"), tid);
+	g_hhook_wnd_ret =
+		SetWindowsHookEx(WH_CALLWNDPROCRET, CallWndRetProc, GetModuleHandle(L"hook_target_mfc_dialog"), tid);
+	g_hhook_msg =
+		SetWindowsHookEx(WH_GETMESSAGE, GetMsgProc, GetModuleHandle(L"hook_target_mfc_dialog"), tid);
 }
 
 extern "C" __declspec(dllexport) void EndDialogHook()
 {
 	if (NULL != g_hhook_wnd_ret)
 		UnhookWindowsHookEx(g_hhook_wnd_ret);
+
+	if (NULL != g_hhook_msg)
+		UnhookWindowsHookEx(g_hhook_msg);
 }
