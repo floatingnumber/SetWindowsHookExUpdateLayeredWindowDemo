@@ -25,6 +25,9 @@ int m_nScreenX;
 int m_nScreenY;
 dlg_test0 *m_pMainDlg;
 
+WNDPROC g_old_proc;
+static bool g_subclassed = false;
+
 //
 //TODO: If this DLL is dynamically linked against the MFC DLLs,
 //		any functions exported from this DLL which call into
@@ -145,6 +148,24 @@ void set_image()
 	}
 }
 
+LRESULT CALLBACK new_proc(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam)
+{
+	if (Msg == WM_CTLCOLORBTN)
+	{
+		HBRUSH hbrush;
+		hbrush = (HBRUSH)GetStockObject(NULL_BRUSH);
+		SetBkMode((HDC)wParam, TRANSPARENT);
+		return ((LRESULT)hbrush);
+	}
+
+	if (Msg == WM_DESTROY)
+	{
+		g_subclassed = false;
+	}
+
+	return CallWindowProc(g_old_proc, hWnd, Msg, wParam, lParam);
+}
+
 LRESULT CALLBACK CallWndRetProc(int nCode, WPARAM wParam, LPARAM lParam)
 {
 	CWPRETSTRUCT *p = (CWPRETSTRUCT *)lParam;
@@ -153,6 +174,12 @@ LRESULT CALLBACK CallWndRetProc(int nCode, WPARAM wParam, LPARAM lParam)
 	{
 	case WM_INITDIALOG:
 		{
+			if (g_subclassed)
+			{
+				break;
+			}
+			g_subclassed = true;
+
 			OutputDebugString(L"WM_INITDIALOG");
 
 			Gdiplus::GdiplusStartupInput input;
@@ -184,9 +211,14 @@ LRESULT CALLBACK CallWndRetProc(int nCode, WPARAM wParam, LPARAM lParam)
 			m_pMemDC->SelectObject(oldBitmap);
 			ReleaseDC(hwnd, pDC->GetSafeHdc());
 
+			// fix "Debug Assertion Failed!" at dlgcore.cpp:213
+			AfxSetResourceHandle(GetModuleHandle(L"hook_target_mfc_dialog"));
+
 			m_pMainDlg = new dlg_test0(CWnd::FromHandle(hwnd));
 			if (m_pMainDlg)
 			{
+				// here will cause dlgcore.cpp:213 "Debug Assertion Failed!"
+				// ERROR: Cannot find dialog template with IDD IDD_DIALOG_TEST0
 				m_pMainDlg->Create(IDD_DIALOG_TEST0, CWnd::FromHandle(hwnd));
 				m_pMainDlg->ShowWindow(SW_SHOW);
 				m_pMainDlg->SetParentDlg(CWnd::FromHandle(hwnd));
@@ -214,6 +246,8 @@ LRESULT CALLBACK CallWndRetProc(int nCode, WPARAM wParam, LPARAM lParam)
 			g_blend.SourceConstantAlpha = 255;
 
 			set_image();
+
+			g_old_proc = (WNDPROC)SetWindowLong(hwnd, GWL_WNDPROC, (LONG)new_proc);
 		}
 		break;
 	}
