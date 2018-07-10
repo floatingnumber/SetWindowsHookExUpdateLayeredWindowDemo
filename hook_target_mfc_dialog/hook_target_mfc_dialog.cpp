@@ -324,6 +324,24 @@ LRESULT CALLBACK CallWndRetProc(int nCode, WPARAM wParam, LPARAM lParam)
 				}
 			}
 
+			DWORD dwstyle = GetWindowLong(hwnd, GWL_STYLE);
+			DWORD dwstyle_new = WS_OVERLAPPED
+				| WS_VISIBLE
+				| WS_SYSMENU
+				| WS_MINIMIZEBOX
+				| WS_MAXIMIZEBOX
+				| WS_CLIPCHILDREN
+				| WS_CLIPSIBLINGS;
+			dwstyle_new &= dwstyle; // & will remove style
+			SetWindowLong(hwnd, GWL_STYLE, dwstyle_new);
+
+			DWORD dwexstyle = GetWindowLong(hwnd, GWL_EXSTYLE);
+			DWORD dwexstyle_new = WS_EX_LEFT | WS_EX_LTRREADING | WS_EX_RIGHTSCROLLBAR;
+			dwexstyle_new &= dwexstyle;
+			SetWindowLong(hwnd, GWL_EXSTYLE, dwexstyle_new);
+
+			SetWindowPos(hwnd, NULL, 0, 0, 0, 0, SWP_NOZORDER | SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED);
+
 			// OnInitDialog
 			COLORREF transColor = RGB(0, 255, 0);
 			g_brush.CreateSolidBrush(transColor);
@@ -337,7 +355,7 @@ LRESULT CALLBACK CallWndRetProc(int nCode, WPARAM wParam, LPARAM lParam)
 
 			dwStyle = GetWindowLong(hwnd, GWL_STYLE);
 
-			VERIFY((dwStyle & WS_POPUP) != 0);
+			/*VERIFY((dwStyle & WS_POPUP) != 0);*/ // cause "Debug Assertion Failed!"
 			VERIFY((dwStyle & WS_CHILD) == 0);
 
 			g_blend.BlendOp = 0;
